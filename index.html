@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1E4D43">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="description" content="班级成长档案系统 · 三年级数学">
+<title>班级成长档案</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><text y='.9em' font-size='54'>📘</text></svg>">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ============ 登录 ============ -->
+  <section id="view-login" class="view">
+    <div class="login-wrap">
+      <!-- 首屏装饰：手绘几何 + 算式 + 云朵天际线，纯内联 SVG，无外部依赖 -->
+      <div class="login-decor" aria-hidden="true">
+        <!-- 右上：同心圆 + 三角尺 + 算式 -->
+        <svg class="decor-a" viewBox="0 0 230 230" fill="none">
+          <circle cx="150" cy="88" r="86" stroke="rgba(255,255,255,.16)" stroke-width="2"/>
+          <circle cx="150" cy="88" r="64" stroke="rgba(232,179,23,.38)" stroke-width="2" stroke-dasharray="7 8"/>
+          <circle cx="150" cy="88" r="42" stroke="rgba(255,255,255,.12)" stroke-width="2"/>
+          <path d="M108 112 L150 60 L192 112 Z" stroke="rgba(255,255,255,.28)" stroke-width="2.5" stroke-linejoin="round"/>
+          <path d="M126 100 L150 76 L174 100" stroke="rgba(232,179,23,.55)" stroke-width="2" stroke-linecap="round"/>
+          <path d="M150 60 L150 112" stroke="rgba(255,255,255,.2)" stroke-width="1.5" stroke-dasharray="4 5"/>
+          <text x="96" y="176" fill="rgba(255,255,255,.30)" font-size="19" font-family="Georgia,serif" font-style="italic">3 × 4 = 12</text>
+          <text x="150" y="42" fill="rgba(232,179,23,.55)" font-size="15" font-family="Georgia,serif">π ≈ 3.14</text>
+        </svg>
+        <!-- 左下：方格 + 铅笔 + 小圆点 -->
+        <svg class="decor-b" viewBox="0 0 180 180" fill="none">
+          <rect x="18" y="26" width="112" height="112" rx="6" stroke="rgba(255,255,255,.14)" stroke-width="2"/>
+          <path d="M46 26 V138 M74 26 V138 M102 26 V138 M18 54 H130 M18 82 H130 M18 110 H130"
+                stroke="rgba(255,255,255,.10)" stroke-width="1.5"/>
+          <g transform="rotate(38 118 118)">
+            <rect x="110" y="52" width="13" height="86" rx="3" fill="rgba(232,179,23,.75)"/>
+            <path d="M110 138 L116.5 152 L123 138 Z" fill="#F6E2A8"/>
+            <path d="M113 147 L116.5 152 L120 147 Z" fill="#3A3A32"/>
+            <rect x="110" y="48" width="13" height="7" rx="2" fill="rgba(255,255,255,.55)"/>
+          </g>
+          <circle cx="36" cy="158" r="4" fill="rgba(232,179,23,.6)"/>
+          <circle cx="54" cy="164" r="3" fill="rgba(255,255,255,.3)"/>
+          <circle cx="20" cy="168" r="2.5" fill="rgba(255,255,255,.25)"/>
+        </svg>
+        <!-- 底部：云朵与铅笔天际线 -->
+        <svg class="decor-c" viewBox="0 0 400 130" preserveAspectRatio="none" fill="none">
+          <path d="M0 104 Q26 88 48 100 Q64 76 92 90 Q112 72 136 92 Q160 82 178 100 Q206 88 228 100
+                   Q250 80 276 96 Q300 84 322 100 Q348 90 370 102 Q386 94 400 100 L400 130 L0 130 Z"
+                fill="rgba(255,255,255,.055)"/>
+          <path d="M0 116 Q40 108 70 116 Q104 102 140 114 Q176 104 210 116 Q250 106 286 116
+                   Q322 106 358 116 Q380 110 400 116 L400 130 L0 130 Z"
+                fill="rgba(232,179,23,.10)"/>
+          <g stroke="rgba(255,255,255,.16)" stroke-width="1.5">
+            <path d="M24 116 l7 -12 l7 12 M60 116 l5 -9 l5 9 M330 116 l6 -11 l6 11 M366 116 l5 -8 l5 8"/>
+          </g>
+        </svg>
+      </div>
+
+      <div class="login-brand">
+        <div class="login-logo">
+          <!-- 书本 + 铅笔 + 星，替代 emoji，风格统一 -->
+          <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+            <path d="M7 11 C13 8.5 19 8.5 24 11 L24 38 C19 35.5 13 35.5 7 38 Z"
+                  fill="#FDFBF3" stroke="#1E4D43" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M41 11 C35 8.5 29 8.5 24 11 L24 38 C29 35.5 35 35.5 41 38 Z"
+                  fill="#E8F0E8" stroke="#1E4D43" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M11 17 H20 M11 22 H18 M28 17 H37 M28 22 H35" stroke="#1E4D43" stroke-width="1.6" stroke-linecap="round" opacity=".65"/>
+            <path d="M24 11 V38" stroke="#1E4D43" stroke-width="2"/>
+            <g transform="rotate(40 35 10)">
+              <rect x="32.5" y="1" width="5" height="18" rx="1.2" fill="#E8B317" stroke="#1E4D43" stroke-width="1.2"/>
+              <path d="M32.5 19 L35 25 L37.5 19 Z" fill="#F6E2A8" stroke="#1E4D43" stroke-width="1.2" stroke-linejoin="round"/>
+              <path d="M33.7 22.5 L35 25 L36.3 22.5 Z" fill="#2C3A34"/>
+            </g>
+            <path d="M9 7 l1.1 2.4 L12.5 10.5 L10.1 11.6 L9 14 L7.9 11.6 L5.5 10.5 L7.9 9.4 Z" fill="#E8B317"/>
+          </svg>
+        </div>
+        <h1>班级成长档案</h1>
+        <p>三年级数学 · 记录每一次进步</p>
+      </div>
+      <div class="segment" id="role-segment">
+        <button class="seg-btn active" data-role="parent">家长查看</button>
+        <button class="seg-btn" data-role="teacher">老师管理</button>
+      </div>
+      <div class="card login-card">
+        <div id="login-parent">
+          <label class="field">
+            <span>学生编号</span>
+            <input id="login-code" type="text" inputmode="numeric" autocomplete="off" placeholder="例如 20260301">
+          </label>
+          <label class="field">
+            <span>访问密码</span>
+            <input id="login-pwd" type="password" autocomplete="off" placeholder="老师发给你的密码">
+          </label>
+        </div>
+        <div id="login-teacher" hidden>
+          <label class="field">
+            <span>管理密码</span>
+            <input id="login-admin" type="password" autocomplete="off" placeholder="默认 admin123，请尽快修改">
+          </label>
+        </div>
+        <button id="btn-login" class="btn btn-primary btn-block">进入</button>
+        <p class="hint" id="login-msg"></p>
+      </div>
+      <p class="login-foot" id="demo-note"></p>
+      <div class="card login-card" id="cfg-card" hidden style="max-width:340px;margin-top:14px">
+        <div class="notice green" style="margin-bottom:10px">已识别到家长链接，下面填<b>学生编号 + 密码</b>即可查看。</div>
+        <div class="muted" id="cfg-status">正在连接云端…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 家长端 ============ -->
+  <section id="view-parent" class="view" hidden>
+    <header class="topbar">
+      <div class="topbar-left"><span class="topbar-title" id="parent-title">成长档案</span></div>
+      <button class="topbar-btn" id="btn-parent-logout">退出</button>
+    </header>
+    <div class="child-hero">
+      <div class="child-avatar" id="child-avatar">学</div>
+      <div>
+        <div class="child-name" id="child-name">—</div>
+        <div class="child-sub" id="child-sub">—</div>
+      </div>
+      <div class="child-score" id="child-latest"></div>
+    </div>
+    <nav class="tabs" id="parent-tabs">
+      <button class="tab active" data-tab="p-overview">总览</button>
+      <button class="tab" data-tab="p-scores">成绩</button>
+      <button class="tab" data-tab="p-growth">成长</button>
+      <button class="tab" data-tab="p-notes">老师的话</button>
+    </nav>
+    <main class="page" id="parent-page"></main>
+  </section>
+
+  <!-- ============ 老师端 ============ -->
+  <section id="view-teacher" class="view" hidden>
+    <header class="topbar">
+      <div class="topbar-left"><span class="topbar-title">老师工作台</span><span class="badge" id="save-badge">本机演示</span></div>
+      <button class="topbar-btn" id="btn-teacher-logout">退出</button>
+    </header>
+    <nav class="tabs" id="teacher-tabs">
+      <button class="tab active" data-tab="t-home">概览</button>
+      <button class="tab" data-tab="t-students">名册</button>
+      <button class="tab" data-tab="t-scores">成绩</button>
+      <button class="tab" data-tab="t-wrong">错题</button>
+      <button class="tab" data-tab="t-perf">表现</button>
+      <button class="tab" data-tab="t-growth">成长</button>
+      <button class="tab" data-tab="t-settings">设置</button>
+    </nav>
+    <main class="page" id="teacher-page"></main>
+    <button class="fab" id="fab-add" title="快速录入" hidden>＋</button>
+  </section>
+
+  <!-- ============ 弹层：表单 ============ -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-mask" data-close="1"></div>
+    <div class="modal-panel">
+      <div class="modal-head"><h3 id="modal-title">录入</h3><button class="modal-x" data-close="1">×</button></div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-foot"><button class="btn btn-ghost" data-close="1">取消</button><button class="btn btn-primary" id="modal-save">保存</button></div>
+    </div>
+  </div>
+
+  <!-- ============ 弹层：图片查看 ============ -->
+  <div id="lightbox" class="lightbox" hidden><img id="lightbox-img" alt="照片"></div>
+
+  <div id="toast" class="toast" hidden></div>
+</div>
+
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

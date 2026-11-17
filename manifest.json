@@ -1,0 +1,20 @@
+{
+  "name": "班级成长档案",
+  "short_name": "成长档案",
+  "description": "三年级数学 · 班级成长档案与家校查看",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F6F1E3",
+  "theme_color": "#1E4D43",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

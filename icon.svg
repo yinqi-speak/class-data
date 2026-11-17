@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="board" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#255A4D"/>
+      <stop offset="1" stop-color="#123A32"/>
+    </linearGradient>
+    <linearGradient id="pageL" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FDFBF3"/>
+      <stop offset="1" stop-color="#EFE8D4"/>
+    </linearGradient>
+    <linearGradient id="pageR" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E6F0E6"/>
+      <stop offset="1" stop-color="#D3E3D8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#board)"/>
+  <!-- 黑板上的淡同心圆与粉笔算式 -->
+  <g fill="none" stroke="#FFFFFF" opacity=".10">
+    <circle cx="392" cy="126" r="128" stroke-width="3"/>
+    <circle cx="392" cy="126" r="92" stroke-width="3" stroke-dasharray="10 12"/>
+  </g>
+  <text x="72" y="118" fill="#E8B317" font-size="34" font-family="Georgia,serif" font-style="italic" opacity=".55">3 × 4 = 12</text>
+  <!-- 打开的课本 -->
+  <path d="M64 156 C130 132 194 132 256 156 L256 400 C194 376 130 376 64 400 Z"
+        fill="url(#pageL)" stroke="#0E2F28" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M448 156 C386 132 322 132 256 156 L256 400 C322 376 386 376 448 400 Z"
+        fill="url(#pageR)" stroke="#0E2F28" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M256 156 V400" stroke="#0E2F28" stroke-width="7"/>
+  <g stroke="#1E4D43" stroke-width="7" stroke-linecap="round" opacity=".55">
+    <path d="M96 208 H212 M96 250 H190 M96 292 H206"/>
+    <path d="M300 208 H416 M326 250 H416 M300 292 H412"/>
+  </g>
+  <!-- 中黄荧光笔划线 -->
+  <path d="M96 336 H214" stroke="#E8B317" stroke-width="13" stroke-linecap="round" opacity=".55"/>
+  <!-- 中黄铅笔 -->
+  <g transform="rotate(38 386 330)">
+    <rect x="366" y="252" width="40" height="152" rx="6" fill="#E8B317" stroke="#0E2F28" stroke-width="6"/>
+    <rect x="366" y="238" width="40" height="18" rx="4" fill="#F6E2A8" stroke="#0E2F28" stroke-width="6"/>
+    <path d="M366 404 L386 446 L406 404 Z" fill="#F6E2A8" stroke="#0E2F28" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M378 430 L386 446 L394 430 Z" fill="#2C3A34"/>
+  </g>
+  <!-- 星 -->
+  <path d="M110 74 l9 20 21 3 -15 15 4 22 -19 -10 -19 10 4 -22 -15 -15 21 -3 Z" fill="#E8B317"/>
+  <!-- 木边/粉笔槽 -->
+  <rect x="0" y="486" width="512" height="26" fill="#C9A46A" opacity=".9"/>
+  <rect x="0" y="486" width="512" height="6" fill="#E8D2A6" opacity=".75"/>
+</svg>
