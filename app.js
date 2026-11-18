@@ -28,7 +28,6 @@
     filterStudent: '',
     filterExam: '',
     scoresExam: '',
-    wrongExam: '',
     photos: [],              // 当前表单里的临时照片
     modalSave: null,
     dirty: false,
@@ -598,28 +597,6 @@
         '<span class="val">' + (p.score == null ? '—' : p.score) + '</span></div>';
     });
     h += '</div>';
-    var wr = S.wrongOf(state.db, stu.id);
-    h += '<div class="section-title">错题与知识点</div><div class="card">';
-    if (!wr.length) h += emptyBox('暂无错题记录', '✏️');
-    else {
-      var kpCount = {};
-      wr.forEach(function (w) { var k = w.kpId || 'none'; kpCount[k] = (kpCount[k] || 0) + 1; });
-      var tops = Object.keys(kpCount).sort(function (a, b) { return kpCount[b] - kpCount[a]; }).slice(0, 3);
-      h += '<div class="muted" style="margin-bottom:10px">出现较多的知识点，可以重点巩固：</div>';
-      tops.forEach(function (k) {
-        var kp = S.kpById(state.db, k);
-        h += '<div style="margin-bottom:10px"><div class="row-between"><span>' + esc(kp ? kp.name : '未分类') +
-          '</span><span class="chip amber">' + kpCount[k] + ' 次</span></div>' +
-          '<div class="bar-track"><div class="bar-fill warn" style="width:' + Math.min(100, kpCount[k] / wr.length * 100) + '%"></div></div></div>';
-      });
-      h += '<div class="divider"></div>';
-      wr.slice(0, 8).forEach(function (w) {
-        var ex = S.examById(state.db, w.examId), kp = S.kpById(state.db, w.kpId);
-        h += '<div class="kv"><span>' + esc(w.date) + ' · ' + esc(ex ? ex.name : '') + '</span>' +
-          '<span class="grow" style="text-align:right">' + esc(kp ? kp.name : '—') + '<br><span class="muted">' + esc(w.note || '') + '</span></span></div>';
-      });
-    }
-    h += '</div>';
     return h;
   }
 
@@ -688,7 +665,6 @@
     if (t === 't-home') p.innerHTML = tHome();
     else if (t === 't-students') p.innerHTML = tStudents();
     else if (t === 't-scores') p.innerHTML = tScores();
-    else if (t === 't-wrong') p.innerHTML = tWrong();
     else if (t === 't-perf') p.innerHTML = tPerf();
     else if (t === 't-growth') p.innerHTML = tGrowth();
     else p.innerHTML = tSettings();
@@ -705,7 +681,6 @@
     var last = exams[exams.length - 1];
     var avg = last ? S.classAverage(db, last.id) : null;
     var att = S.attentionStudents(db);
-    var weak = S.weakKPs(db, last ? last.id : '');
     var h = '<div class="stat-grid">' +
       stat(db.students.length, '学生') + stat(db.exams.length, '考试') +
       stat(avg == null ? '—' : fmt(avg), '最近班均') + '</div>';
@@ -720,23 +695,11 @@
     });
     h += '</div>';
 
-    h += '<div class="section-title">班级共性薄弱点' + (last ? '（' + esc(last.name) + '）' : '') + '</div><div class="card">';
-    if (!weak.length) h += emptyBox('这次考试还没登记错题', '📊');
-    else weak.slice(0, 6).forEach(function (w) {
-      var pct = Math.min(100, w.count / Math.max(1, db.wrong.filter(function (x) { return !last || x.examId === last.id; }).length) * 100);
-      h += '<div style="margin-bottom:12px"><div class="row-between"><span>' + esc(w.kp.name) +
-        '</span><span class="chip ' + (w.count >= 3 ? 'red' : 'amber') + '">' + w.count + ' 人次</span></div>' +
-        '<div class="bar-track"><div class="bar-fill ' + (w.count >= 3 ? 'bad' : 'warn') + '" style="width:' + pct + '%"></div></div></div>';
-    });
-    if (weak.length) h += '<div class="notice">建议：下一节课针对「' + esc(weak[0].kp.name) + '」安排 5 分钟对比练习，再点名 ' +
-      esc(att.slice(0, 2).map(function (a) { return a.student.alias; }).join('、') || '相关同学') + ' 上台板演。</div>';
-    h += '</div>';
-
     if (last) {
       h += '<div class="section-title">最近一次成绩分布</div><div class="card">' +
         scoreBars(db, last.id) + '</div>';
     }
-    h += '<div class="notice">👆 以上是「改进课堂教学」用的抓手：先看待关注名单，再看共性薄弱知识点。</div>';
+    h += '<div class="notice">👆「需要关注」自动抓出较上次退步 8 分以上、或低于班均 10 分以上的学生。</div>';
     return h;
   }
   function scoreBars(db, examId) {
@@ -776,11 +739,16 @@
   /* ---- 成绩 ---- */
   function tScores() {
     var db = state.db;
-    var exams = db.exams.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+    // 只显示当前科目的考试；老数据没有 subjectId 的，归到数学
+    var subj = db.activeSubject || 'sub_math';
+    var exams = db.exams.filter(function (e) {
+      return (e.subjectId || 'sub_math') === subj;
+    }).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
     var validExamIds = exams.map(function (e) { return e.id; });
     var cur = validExamIds.indexOf(state.scoresExam) >= 0 ? state.scoresExam : (exams[0] && exams[0].id) || '';
     state.scoresExam = cur;
-    var h = '<div class="card"><div class="card-head"><h3>成绩录入</h3>' +
+    var subjName = (db.subjects.filter(function (s) { return s.id === subj; })[0] || {}).name || '数学';
+    var h = '<div class="card"><div class="card-head"><h3>成绩录入 · ' + esc(subjName) + '</h3>' +
       '<button class="btn btn-primary btn-sm" data-act="exam-add">＋ 新建考试</button></div>';
     if (!exams.length) h += emptyBox('先新建一次考试，再录分', '📝');
     else {
@@ -810,46 +778,6 @@
       var ser = avgSeriesFor(db);
       h += '<div class="section-title">班级均分走势</div><div class="card">' + lineChart(ser, null) + '</div>';
     }
-    return h;
-  }
-
-  /* ---- 错题 ---- */
-  function tWrong() {
-    var db = state.db;
-    var exams = db.exams.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
-    var sel = (exams.some(function (e) { return e.id === state.wrongExam; })) ? state.wrongExam : '';
-    var list = db.wrong.filter(function (w) { return !sel || w.examId === sel; })
-      .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
-    var h = '<div class="card"><div class="card-head"><h3>错题登记</h3>' +
-      '<button class="btn btn-primary btn-sm" data-act="wrong-add">＋ 登记错题</button></div>';
-    h += '<div class="form-row"><label>筛选考试</label><select id="wrong-exam"><option value="">全部</option>' +
-      exams.map(function (e) { return '<option value="' + esc(e.id) + '"' + (e.id === sel ? ' selected' : '') + '>' + esc(e.name) + '</option>'; }).join('') +
-      '</select></div></div>';
-    h += '<div class="section-title">知识点分布（' + (sel ? esc((S.examById(db, sel) || {}).name) : '全部') + '）</div><div class="card">';
-    var weak = S.weakKPs(db, sel);
-    if (!weak.length) h += emptyBox('还没有错题记录', '✏️');
-    else weak.forEach(function (w) {
-      h += '<div style="margin-bottom:10px"><div class="row-between"><span>' + esc(w.kp.name) +
-        '</span><span class="chip ' + (w.count >= 3 ? 'red' : 'amber') + '">' + w.count + ' 人次</span></div>' +
-        '<div class="bar-track"><div class="bar-fill ' + (w.count >= 3 ? 'bad' : 'warn') +
-        '" style="width:' + Math.min(100, w.count / list.length * 100) + '%"></div></div></div>';
-    });
-    h += '</div>';
-    h += '<div class="section-title">逐条记录（' + list.length + '）</div><div class="card">';
-    if (!list.length) h += emptyBox('暂无记录', '✏️');
-    else list.forEach(function (w) {
-      var stu = S.studentById(db, w.studentId), ex = S.examById(db, w.examId), kp = S.kpById(db, w.kpId);
-      h += '<div class="list-item"><span class="avatar sm">' + esc(stu ? stu.alias.slice(-1) : '?') + '</span>' +
-        '<span class="grow"><b>' + esc(stu ? stu.alias : '—') + '</b> · ' + esc(kp ? kp.name : '未分类') +
-        '<br><span class="muted">' + esc(ex ? ex.name : '') + ' · ' + esc(w.date) + ' · ' + esc(w.note || '') + '</span></span>' +
-        '<button class="danger-link" data-act="wrong-del" data-id="' + esc(w.id) + '">删</button></div>';
-    });
-    h += '</div>';
-    h += '<div class="card"><div class="card-head"><h3>知识点清单</h3>' +
-      '<button class="btn btn-ghost btn-sm" data-act="kp-add">＋ 添加</button></div><div class="pill-row">' +
-      (db.kps.length ? db.kps.map(function (k) {
-        return '<span class="pill on" data-act="kp-del" data-id="' + esc(k.id) + '" title="点击删除">' + esc(k.name) + ' ×</span>';
-      }).join('') : '<span class="muted">还没有知识点，先对照人教版目录添加</span>') + '</div></div>';
     return h;
   }
 
@@ -925,9 +853,24 @@
 
     h += '<div class="card"><div class="card-head"><h3>班级与安全</h3></div>' +
       '<div class="form-row"><label>班级名称</label><input id="set-class" value="' + esc(db.className) + '"></div>' +
+      '<div class="form-row"><label>当前学期</label><input id="set-term" value="' + esc(db.term || '') + '" placeholder="如 2026-秋"></div>' +
+      '<div class="muted" style="margin:-6px 0 12px">升年级时把学期改成新值（如 2027-春），旧数据不会丢，只是不再默认显示。</div>' +
       '<div class="form-row"><label>修改老师管理密码（留空表示不改）</label>' +
       '<input id="set-admin" type="password" placeholder="新管理密码"></div>' +
       '<button class="btn btn-primary btn-block" data-act="set-save">保存设置</button></div>';
+
+    h += '<div class="card"><div class="card-head"><h3>科目</h3>' +
+      '<span class="sub">当前：' + esc((db.subjects.filter(function (s) { return s.id === db.activeSubject; })[0] || db.subjects[0] || {}).name || '数学') + '</span></div>' +
+      '<div class="notice">现在只有数学。以后加语文、英语时，点「＋ 添加科目」，' +
+      '每个科目独立记录成绩和表现，互不干扰；家长看到的仍是自己孩子的全部记录。</div>' +
+      '<div class="pill-row" style="margin-bottom:12px">' +
+      db.subjects.map(function (s) {
+        var on = s.id === db.activeSubject ? ' on' : '';
+        return '<span class="pill' + on + '" data-act="subject-pick" data-id="' + esc(s.id) + '">' + esc(s.name) + '</span>';
+      }).join('') + '</div>' +
+      '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+      '<button class="btn btn-ghost grow" data-act="subject-add">＋ 添加科目</button>' +
+      '</div></div>';
 
     h += '<div class="card"><div class="card-head"><h3>名册批量导入</h3>' +
       '<span class="sub">' + db.students.length + ' 人</span></div>' +
@@ -1042,10 +985,6 @@
         };
       });
     }
-    if (t === 't-wrong') {
-      var we = $('#wrong-exam');
-      if (we) we.onchange = function () { state.wrongExam = we.value; renderTeacher(); };
-    }
     $$('[data-act]').forEach(function (el) { el.onclick = function () { handleAct(el.dataset.act, el.dataset.id, el); }; });
   }
 
@@ -1064,17 +1003,6 @@
         db.wrong = db.wrong.filter(function (w) { return w.examId !== id; });
         state.scoresExam = ''; persist('已删除考试及其成绩'); renderTeacher();
       }); break;
-      /* 错题 */
-      case 'wrong-add': modalWrong(); break;
-      case 'wrong-del': confirmDel(function () {
-        db.wrong = db.wrong.filter(function (w) { return w.id !== id; }); persist('已删除'); renderTeacher();
-      }); break;
-      case 'kp-add': modalKP(); break;
-      case 'kp-del': confirmDel(function () {
-        var n = db.wrong.filter(function (w) { return w.kpId === id; }).length;
-        if (n && !confirm('这个知识点关联了 ' + n + ' 条错题，删除后这些错题会显示为「未分类」。继续？')) return;
-        db.kps = db.kps.filter(function (k) { return k.id !== id; }); persist('已删除'); renderTeacher();
-      }); break;
       /* 表现 */
       case 'perf-add': modalPerf(); break;
       case 'perf-del': confirmDel(function () {
@@ -1092,9 +1020,29 @@
       }); break;
       /* 设置 */
       case 'theme': applyTheme(el.dataset.theme); renderTeacher(); toast('外观已切换'); break;
+      case 'subject-pick': {
+        db.activeSubject = el.dataset.id;
+        persist('已切换到' + ((db.subjects.filter(function (s) { return s.id === el.dataset.id; })[0] || {}).name || ''));
+        renderTeacher(); break;
+      }
+      case 'subject-add': {
+        var sn = prompt('新科目名称（如 语文、英语）：', '');
+        if (!sn) break;
+        sn = String(sn).trim();
+        if (!sn) break;
+        if (db.subjects.some(function (s) { return s.name === sn; })) { toast('已经有这个科目了'); break; }
+        var sid = S.uid('sub');
+        db.subjects.push({ id: sid, name: sn });
+        db.activeSubject = sid;
+        persist('已添加科目：' + sn); renderTeacher();
+        toast('已添加「' + sn + '」，现在记录的成绩会归到这个科目');
+        break;
+      }
       case 'set-save': {
         var cn = $('#set-class').value.trim(), ap = $('#set-admin').value.trim();
+        var tm = ($('#set-term') || {}).value ? $('#set-term').value.trim() : '';
         if (cn) db.className = cn;
+        if (tm) db.term = tm;
         if (ap) db.adminHash = S.hashPwd(ap);
         $('#set-admin').value = '';
         persist('设置已保存'); renderTeacher(); break;
@@ -1104,14 +1052,14 @@
       case 'roster-import': $('#roster-file').click(); break;
       case 'roster-template': downloadRosterTemplate(); break;
       case 'reset-demo': confirmDel(function () {
-        state.db = S.demoDB(); state.scoresExam = ''; state.wrongExam = '';
+        state.db = S.demoDB(); state.scoresExam = '';
         persist('已恢复演示数据'); renderTeacher();
       }); break;
       case 'clear-all': confirmDel(function () {
         if (!confirm('再确认一次：这会删掉全部学生、成绩和成长记录，且无法恢复。')) return;
         var cloud = S.clone(db.cloud);
         state.db = S.emptyDB(); state.db.cloud = cloud;
-        state.scoresExam = ''; state.wrongExam = '';
+        state.scoresExam = '';
         persist('已清空'); renderTeacher();
       }); break;
       case 'cloud-toggle': {
@@ -1206,11 +1154,6 @@
         esc(e.name) + '（' + esc(e.date) + '）</option>';
     }).join('');
   }
-  function kpOptions(sel) {
-    return '<option value="">未分类</option>' + state.db.kps.map(function (k) {
-      return '<option value="' + esc(k.id) + '"' + (k.id === sel ? ' selected' : '') + '>' + esc(k.name) + '</option>';
-    }).join('');
-  }
   function needStudents() { return state.db.students.length > 0; }
 
   function modalStudent() {
@@ -1259,37 +1202,13 @@
         var name = $('#f-name').value.trim(), date = $('#f-date').value, full = Number($('#f-full').value) || 100;
         if (!name || !date) { toast('名称和日期都要填'); return false; }
         var id = S.uid('ex');
-        state.db.exams.push({ id: id, name: name, date: date, full: full });
-        state.scoresExam = id; persist('已新建：' + name); renderTeacher(); return true;
-      });
-  }
-
-  function modalWrong() {
-    if (!needStudents()) { toast('先到「名册」添加学生'); return; }
-    openModal('登记错题', '<div class="form-row"><label>学生 *</label><select id="f-stu">' + stuOptions() + '</select></div>' +
-      '<div class="form-grid"><div class="form-row"><label>关联考试</label><select id="f-exam">' + examOptions('', true) + '</select></div>' +
-      '<div class="form-row"><label>日期</label><input id="f-date" type="date" value="' + S.today() + '"></div></div>' +
-      '<div class="form-row"><label>知识点 *</label><select id="f-kp">' + kpOptions('') + '</select></div>' +
-      '<div class="form-row"><label>错在哪（一句话）</label><textarea id="f-note" placeholder="如：周长与面积公式记混"></textarea></div>',
-      function () {
-        var kp = $('#f-kp').value;
-        if (!kp) { toast('请选一个知识点，可先到下方清单添加'); return false; }
-        state.db.wrong.push({
-          id: S.uid('wr'), studentId: $('#f-stu').value, examId: $('#f-exam').value,
-          kpId: kp, date: $('#f-date').value || S.today(), note: $('#f-note').value.trim()
+        // 打上科目与学期标记，便于以后多科目、跨学期筛选
+        state.db.exams.push({
+          id: id, name: name, date: date, full: full,
+          subjectId: state.db.activeSubject || 'sub_math',
+          term: state.db.term || ''
         });
-        persist('已登记'); renderTeacher(); return true;
-      });
-  }
-
-  function modalKP() {
-    openModal('添加知识点', '<div class="form-row"><label>知识点名称 *</label>' +
-      '<input id="f-kpname" placeholder="如 两位数乘两位数"></div>' +
-      '<div class="notice">建议对照人教版三年级上下册目录，一单元一条，方便统计共性薄弱点。</div>',
-      function () {
-        var n = $('#f-kpname').value.trim(); if (!n) { toast('名称不能为空'); return false; }
-        state.db.kps.push({ id: S.uid('kp'), name: n });
-        persist('已添加'); renderTeacher(); return true;
+        state.scoresExam = id; persist('已新建：' + name); renderTeacher(); return true;
       });
   }
 
@@ -1437,7 +1356,7 @@
 
     $('#fab-add').onclick = function () {
       var map = {
-        't-students': modalStudent, 't-scores': modalExam, 't-wrong': modalWrong,
+        't-students': modalStudent, 't-scores': modalExam,
         't-perf': modalPerf, 't-growth': modalGrowth
       };
       if (map[state.teacherTab]) map[state.teacherTab]();
