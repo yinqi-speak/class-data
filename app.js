@@ -74,12 +74,24 @@
     try { localStorage.setItem(KEY, JSON.stringify(state.db)); return true; }
     catch (e) { toast('本机存储失败：' + e.message); return false; }
   }
+  var pushTimer = null;
   function persist(msg) {
     saveLocal();
     state.dirty = true;
     if (msg) toast(msg);
     renderBadge();
-    if (state.db.cloud.enabled && state.db.cloud.putUrl) pushCloud();
+    // GitHub 模式用 ghRepo+ghToken，通用模式用 putUrl。
+    // 原逻辑只判断 putUrl，导致 GitHub 模式下永远不自动上传。
+    var c = state.db.cloud || {};
+    var canPush = c.enabled && (
+      (c.mode === 'github' && c.ghRepo && c.ghToken) ||
+      (c.mode !== 'github' && c.putUrl)
+    );
+    // 防抖：连续编辑只在停手 1.5 秒后上传一次，避免刷出一堆提交
+    if (canPush) {
+      if (pushTimer) clearTimeout(pushTimer);
+      pushTimer = setTimeout(function () { pushTimer = null; pushCloud(); }, 1500);
+    }
   }
 
   function renderBadge() {
@@ -266,24 +278,40 @@
       });
   }
 
+  var pushing = false, pushAgain = false;
   function pushCloud() {
     var c = cloudCfg();
     if (!state.db.cloud.enabled) { toast('云端同步没开启'); return Promise.resolve(false); }
+    // 串行化：正在上传时再来一次，就标记「传完再传一次」，避免并发写导致 sha 冲突
+    if (pushing) { pushAgain = true; return Promise.resolve(false); }
+    pushing = true;
     var payload = wrap(state.db);
     var body = JSON.stringify(payload);
 
-    if (c.mode === 'github') return pushGitHub(c, body, payload);
-    if (!c.putUrl) {
+    var task;
+    if (c.mode === 'github') {
+      task = pushGitHub(c, body, payload);
+    } else if (!c.putUrl) {
+      pushing = false;
       toast('只有「读取链接」，本机可看；要让家长看到，需配置「写入链接」');
       return Promise.resolve(false);
+    } else {
+      task = fetch(c.putUrl, {
+        method: 'PUT',
+        headers: cloudHeaders(c.token, { 'Content-Type': 'application/json' }),
+        body: body
+      }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .then(function () { onPushDone(payload); return true; })
+        .catch(function (e) { toast('上传失败：' + e.message); return false; });
     }
-    return fetch(c.putUrl, {
-      method: 'PUT',
-      headers: cloudHeaders(c.token, { 'Content-Type': 'application/json' }),
-      body: body
-    }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-      .then(function () { onPushDone(payload); return true; })
-      .catch(function (e) { toast('上传失败：' + e.message); return false; });
+    return task.then(function (r) {
+      pushing = false;
+      if (pushAgain) { pushAgain = false; return pushCloud(); }
+      return r;
+    }, function (e) {
+      pushing = false; pushAgain = false;
+      throw e;
+    });
   }
 
   function onPushDone(payload) {
