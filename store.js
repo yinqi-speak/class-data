@@ -122,6 +122,11 @@
   function emptyDB() {
     return {
       version: VERSION, className: '我的班级', adminHash: hashPwd('admin123'),
+      // 当前学期（影响默认筛选；历史记录保留）
+      term: '2026-秋',
+      // 科目列表：默认数学；以后可加语文、英语
+      subjects: [{ id: 'sub_math', name: '数学' }],
+      activeSubject: 'sub_math',
       students: [], exams: [], scores: [], kps: [], wrong: [], perf: [], growth: [], notes: [],
       cloud: {
         enabled: false, mode: 'github',
@@ -151,8 +156,14 @@
   }
 
   /* 返回按考试日期排序的某个学生成绩序列 */
-  function scoreSeries(db, studentId) {
-    return db.exams.slice().sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; })
+  /* 取某学生的成绩序列。subjectId 为空时返回全部科目（家长总览用）；
+     传了 subjectId 就只取该科目（单科趋势用）。老数据无 subjectId 视为数学。 */
+  function scoreSeries(db, studentId, subjectId) {
+    return db.exams.filter(function (ex) {
+      if (!subjectId) return true;
+      return (ex.subjectId || 'sub_math') === subjectId;
+    })
+      .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; })
       .map(function (ex) {
         var rec = null;
         for (var i = 0; i < db.scores.length; i++) {
@@ -274,10 +285,13 @@
   function normalize(db) {
     var out = clone(emptyDB());
     if (!db || typeof db !== 'object') return out;
-    ['version', 'className', 'adminHash', '_updatedAt'].forEach(function (k) { if (db[k] != null) out[k] = db[k]; });
-    ['students', 'exams', 'scores', 'kps', 'wrong', 'perf', 'growth', 'notes'].forEach(function (k) {
+    ['version', 'className', 'adminHash', '_updatedAt', 'term', 'activeSubject'].forEach(function (k) { if (db[k] != null) out[k] = db[k]; });
+    ['students', 'exams', 'scores', 'kps', 'wrong', 'perf', 'growth', 'notes', 'subjects'].forEach(function (k) {
       if (Array.isArray(db[k])) out[k] = db[k];
     });
+    // 兼容旧数据：没有科目就补一个数学
+    if (!out.subjects.length) out.subjects = [{ id: 'sub_math', name: '数学' }];
+    if (!out.activeSubject) out.activeSubject = out.subjects[0].id;
     if (db.cloud && typeof db.cloud === 'object') {
       out.cloud = Object.assign(out.cloud, db.cloud);
     }
