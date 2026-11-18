@@ -183,8 +183,29 @@
     else if (d.data && d.data._classData && d.data.db) d = d.data.db;
     return Array.isArray(d.students) ? d : null;
   }
+  /* 上传前剔除所有敏感字段。
+     ⚠️ 曾经把 cloud.ghToken 一起传上去，导致 GitHub 密钥扫描返回 409，
+     而且令牌会公开泄漏在 data.json 里。云端只需要业务数据。 */
+  function sanitizeForUpload(db) {
+    var out = S.clone(db);
+    if (out.cloud) {
+      // 云端配置只保留「无需保密」的，其余一律清空
+      out.cloud = {
+        enabled: !!out.cloud.enabled,
+        mode: out.cloud.mode || 'github',
+        ghRepo: out.cloud.ghRepo || '',
+        ghPath: out.cloud.ghPath || 'data.json',
+        ghBranch: out.cloud.ghBranch || 'main',
+        getUrl: '',      // 读取地址可从仓库推出，不必上传
+        putUrl: '',
+        token: '',
+        ghToken: ''      // ← 关键：写入令牌绝不外传
+      };
+    }
+    return out;
+  }
   function wrap(db) {
-    return { _classData: 1, updatedAt: new Date().toISOString(), db: db };
+    return { _classData: 1, updatedAt: new Date().toISOString(), db: sanitizeForUpload(db) };
   }
   function mergeDB(local, remote) {
     // 规则（按优先级）：
@@ -223,7 +244,17 @@
         if (!d) throw new Error('返回的数据格式不对（需要含 students 数组）');
         var local = { db: state.db, _updatedAt: state.db._updatedAt || '' };
         var remote = { db: d, _updatedAt: (raw && raw.updatedAt) || '' };
+        // 记住本机的云端配置，合并后必须原样恢复：
+        // 云端存的是脱敏版本（token 为空），不能让它覆盖本机已填的令牌。
+        var keepCloud = S.clone(state.db.cloud || {});
         state.db = S.normalize(mergeDB(local, remote));
+        if (keepCloud.ghToken || keepCloud.token || keepCloud.putUrl) {
+          state.db.cloud = Object.assign({}, keepCloud, {
+            // 仓库/路径/分支允许云端纠正（老师可能换了仓库），但令牌只认本机
+            ghToken: keepCloud.ghToken || '',
+            token: keepCloud.token || ''
+          });
+        }
         if (remote._updatedAt) state.db._updatedAt = remote._updatedAt;
         saveLocal(); state.dirty = false; renderBadge();
         if (showMsg) { toast('已从云端取回最新数据'); renderCurrent(); }
