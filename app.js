@@ -32,7 +32,8 @@
     photos: [],              // 当前表单里的临时照片
     modalSave: null,
     dirty: false,
-    parentCfg: false       // 是否由「家长专用网址」进入
+    parentCfg: false,      // 是否由「家长专用网址」进入
+    cloudError: ''         // 上次上传失败原因（空=无错误）
   };
 
   /* ---------------- 外观主题 ---------------- */
@@ -97,7 +98,15 @@
   function renderBadge() {
     var b = $('#save-badge');
     if (!b) return;
-    if (!state.db.cloud.enabled) { b.textContent = '本机演示'; return; }
+    if (!state.db.cloud.enabled) { b.textContent = '本机演示'; b.style.background = ''; return; }
+    if (state.cloudError) {
+      b.textContent = '上传失败';
+      b.style.background = '#C4623F';
+      b.style.color = '#fff';
+      return;
+    }
+    b.style.background = '';
+    b.style.color = '';
     b.textContent = state.dirty ? '待上传云端' : '已同步云端';
   }
 
@@ -302,7 +311,7 @@
         body: body
       }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(function () { onPushDone(payload); return true; })
-        .catch(function (e) { toast('上传失败：' + e.message); return false; });
+        .catch(function (e) { state.cloudError = e.message; renderBadge(); toast('上传失败：' + e.message); return false; });
     }
     return task.then(function (r) {
       pushing = false;
@@ -316,6 +325,7 @@
 
   function onPushDone(payload) {
     state.dirty = false;
+    state.cloudError = '';
     try { state.db._updatedAt = payload.updatedAt; saveLocal(); } catch (e) {}
     renderBadge();
     toast('已同步，家长刷新即可看到');
@@ -356,7 +366,7 @@
         return r.json();
       })
       .then(function () { onPushDone(payload); return true; })
-      .catch(function (e) { toast('上传失败：' + e.message); return false; });
+      .catch(function (e) { state.cloudError = e.message; renderBadge(); toast('上传失败：' + e.message); return false; });
   }
   function renderCurrent() {
     if (!$('#view-parent').hidden) renderParent();
