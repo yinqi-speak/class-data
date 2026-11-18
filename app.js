@@ -919,6 +919,16 @@
       '<input id="set-admin" type="password" placeholder="新管理密码"></div>' +
       '<button class="btn btn-primary btn-block" data-act="set-save">保存设置</button></div>';
 
+    h += '<div class="card"><div class="card-head"><h3>名册批量导入</h3>' +
+      '<span class="sub">' + db.students.length + ' 人</span></div>' +
+      '<div class="notice">一次导入全班。文件里只要「编号、化名、密码、性别」四项，' +
+      '<b>不要放真实姓名、身份证号、电话、住址</b>——这些一旦上传到公开仓库就等于公开。</div>' +
+      '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+      '<button class="btn btn-primary grow" data-act="roster-import">⬆ 批量导入名册</button>' +
+      '<button class="btn btn-ghost grow" data-act="roster-template">⬇ 下载导入模板</button></div>' +
+      '<input type="file" id="roster-file" accept="application/json,.json" hidden>' +
+      '<div class="muted" style="margin-top:8px">导入方式可选：<b>追加</b>（保留现有学生）或 <b>替换</b>（清空后重建）。</div></div>';
+
     h += '<div class="card"><div class="card-head"><h3>数据导入 / 导出</h3></div>' +
       '<div class="notice">换手机、换电脑时：先在旧设备「导出 JSON」，把文件发给自己，再在新设备导入。导入会整体替换当前数据。</div>' +
       '<div class="row" style="gap:8px;flex-wrap:wrap">' +
@@ -1081,6 +1091,8 @@
       }
       case 'export': doExport(); break;
       case 'import': $('#import-file').click(); break;
+      case 'roster-import': $('#roster-file').click(); break;
+      case 'roster-template': downloadRosterTemplate(); break;
       case 'reset-demo': confirmDel(function () {
         state.db = S.demoDB(); state.scoresExam = ''; state.wrongExam = '';
         persist('已恢复演示数据'); renderTeacher();
@@ -1456,6 +1468,98 @@
       r.readAsText(f);
       e.target.value = '';
     });
+
+    // 名册批量导入：只接受 编号/化名/密码/性别，拒绝任何疑似隐私字段
+    document.addEventListener('change', function (e) {
+      if (!e.target || e.target.id !== 'roster-file') return;
+      var f = e.target.files && e.target.files[0]; if (!f) return;
+      var r = new FileReader();
+      r.onload = function (ev) {
+        try { doRosterImport(ev.target.result); }
+        catch (err) { toast('导入失败：' + err.message); }
+      };
+      r.readAsText(f);
+      e.target.value = '';
+    });
+  }
+
+  /* 名册导入核心：校验 → 选择追加/替换 → 写入 */
+  function doRosterImport(text) {
+    var data;
+    try { data = JSON.parse(text); } catch (e) { throw new Error('文件不是有效的 JSON'); }
+    var list = Array.isArray(data) ? data : (data && data.students);
+    if (!Array.isArray(list) || !list.length) throw new Error('文件里没有学生列表');
+
+    // 隐私字段黑名单：出现就拒绝，防止真实姓名/身份证/电话进系统
+    var FORBIDDEN = ['name', 'realName', '真实姓名', '姓名', 'idcard', 'idCard', '身份证',
+      'idNo', 'phone', 'tel', '电话', '手机', 'address', '住址', '家庭住址', 'guardian', '监护人'];
+    var first = list[0] || {};
+    var hit = Object.keys(first).filter(function (k) {
+      return FORBIDDEN.indexOf(k) >= 0 || FORBIDDEN.indexOf(String(k).trim()) >= 0;
+    });
+    if (hit.length) throw new Error('文件含隐私字段「' + hit.join('、') + '」，请先删除再导入');
+
+    // 逐条校验
+    var clean = [], errs = [], seen = {};
+    list.forEach(function (it, i) {
+      var code = String((it && it.code) || '').trim();
+      var alias = String((it && (it.alias || it['化名'])) || '').trim();
+      var pwd = String((it && (it.pwd || it['密码'])) || '').trim();
+      var gender = String((it && (it.gender || it['性别'])) || '').trim();
+      if (!code) { errs.push('第' + (i + 1) + '条缺编号'); return; }
+      if (!alias) { errs.push('第' + (i + 1) + '条缺化名'); return; }
+      if (!pwd) { errs.push('第' + (i + 1) + '条缺密码'); return; }
+      if (seen[code]) { errs.push('编号重复：' + code); return; }
+      seen[code] = 1;
+      clean.push({ id: S.uid('stu'), code: code, alias: alias, pwd: pwd, gender: gender, joined: S.today(), active: true });
+    });
+    if (errs.length) throw new Error(errs.slice(0, 5).join('；') + (errs.length > 5 ? ' 等 ' + errs.length + ' 处' : ''));
+    if (!clean.length) throw new Error('没有可导入的学生');
+
+    var replace = confirm(
+      '共 ' + clean.length + ' 名学生待导入。\n\n' +
+      '【确定】= 替换：清空现有 ' + state.db.students.length + ' 名学生后导入（成绩等也一并清空）\n' +
+      '【取消】= 追加：保留现有学生，只补充新的'
+    );
+
+    var imported = 0;
+    if (replace) {
+      // 替换：整体换成新名册，并清空与旧学生绑定的所有记录
+      state.db.students = clean;
+      state.db.scores = [];
+      state.db.wrong = [];
+      state.db.perf = [];
+      state.db.growth = [];
+      state.db.notes = [];
+      imported = clean.length;
+    } else {
+      // 追加：跳过编号已存在的
+      var have = {};
+      state.db.students.forEach(function (s) { have[s.code] = 1; });
+      clean.forEach(function (s) { if (!have[s.code]) { state.db.students.push(s); imported++; } });
+    }
+
+    persist('已导入 ' + imported + ' 名学生');
+    renderTeacher();
+    toast('导入成功：新增 ' + imported + ' 人，共 ' + state.db.students.length + ' 名学生');
+  }
+
+  /* 名册导入模板（只有四个字段） */
+  function downloadRosterTemplate() {
+    var tpl = {
+      className: state.db.className || '三年级（2）班',
+      students: [
+        { code: '2024011', alias: '小阳', pwd: 'AB23CD', gender: '男' },
+        { code: '2024022', alias: '小美', pwd: 'XY78ZW', gender: '女' }
+      ]
+    };
+    var blob = new Blob([JSON.stringify(tpl, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '名册导入模板.json';
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    toast('模板已下载，按格式填好后导入');
   }
 
   /* ---------------- 启动 ---------------- */
