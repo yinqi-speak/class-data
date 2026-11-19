@@ -180,6 +180,25 @@
     var base = location.href.split('#')[0].split('?')[0];
     return base + '?cfg=' + encodeURIComponent(cfg) + '#parent';
   }
+  /* 老师网址：带读写配置（不含 token），自动配好云端，停在登录页 */
+  function applyTeacherCfg() {
+    var m = /[?&]tcfg=([^&]+)/.exec(location.search || '');
+    if (!m) return false;
+    try {
+      var cfg = JSON.parse(b64decode(decodeURIComponent(m[1]).split('#')[0]));
+      if (!cfg.readUrl || !/^https?:\/\//i.test(cfg.readUrl)) return false;
+      var c = state.db.cloud;
+      c.enabled = true;
+      c.mode = 'github';
+      c.getUrl = cfg.readUrl;
+      c.ghRepo = cfg.repo || '';
+      c.ghPath = cfg.path || 'data.json';
+      c.ghBranch = cfg.branch || 'main';
+      // 不覆盖本机已有的 ghToken（安全）
+      saveLocal();
+      return true;
+    } catch (e) { return false; }
+  }
   function applyParentCfg() {
     var m = /[?&]cfg=([^&]+)/.exec(location.search || '');
     if (!m) return false;
@@ -189,11 +208,16 @@
       var url = b64decode(rawCfg);
       if (!/^https?:\/\//i.test(url)) return false;
       state.db.cloud.enabled = true;
-      state.db.cloud.mode = 'url';   // 家长端统一走简单 GET，不需要 token
+      state.db.cloud.mode = 'url';   // 走简单 GET，不需要 token
       state.db.cloud.getUrl = url;
-      state.db.cloud.putUrl = '';    // 家长端只读
-      state.db.cloud.ghToken = '';   // 绝不把写入令牌带到家长端
-      state.role = 'parent';
+      // 只在家长专用链接（#parent）时清空写入能力；老师链接保留本机已有令牌
+      var isParentLink = /#parent/.test(location.hash || '') ||
+        (location.search || '').indexOf('#parent') >= 0;
+      if (isParentLink) {
+        state.db.cloud.putUrl = '';
+        state.db.cloud.ghToken = '';   // 绝不把写入令牌带到家长端
+        state.role = 'parent';
+      }
       saveLocal();
       return true;
     } catch (e) { return false; }
@@ -864,17 +888,38 @@
   }
 
   /* ---- 设置 ---- */
+  function buildTeacherURL() {
+    var c = cloudCfg();
+    var base = location.href.split('#')[0].split('?')[0];
+    // 老师网址：带上读取地址 + GitHub 仓库/路径/分支，但不带写入令牌
+    // 老师拿到后自动连云端读到名单和密码；写入令牌仍需每台设备填一次（保持安全）
+    var cfg = {
+      readUrl: (c.mode === 'github') ? (ghReadUrl() || c.getUrl) : c.getUrl,
+      repo: c.ghRepo || '',
+      path: c.ghPath || 'data.json',
+      branch: c.ghBranch || 'main'
+    };
+    if (!cfg.readUrl) return '';
+    return base + '?tcfg=' + encodeURIComponent(b64encode(JSON.stringify(cfg)));
+  }
   function parentCfgBlock() {
     var url = buildParentURL();
-    if (!url) return '<div class="notice">填好「数据读取链接」并保存后，这里会生成一条<b>家长专用网址</b>。</div>';
-    return '<div class="notice green"><b>家长专用网址（发这一条就行）</b><br>' +
-      '家长用手机打开 → 自动连云端 → 填自己孩子的编号和密码 → 只看到自己孩子，不用做任何设置。</div>' +
+    var turl = buildTeacherURL();
+    if (!url) return '<div class="notice">填好「数据读取链接」并保存后，这里会生成<b>家长网址</b>和<b>老师网址</b>。</div>';
+    return '<div class="notice green"><b>老师网址（发给语文、英语老师）</b><br>' +
+      '打开后自动连云端、读到全班名单 → 点「老师管理」→ 输本科目密码，即可用。</div>' +
+      '<div class="code-line" id="teacher-url">' + esc(turl) + '</div>' +
+      '<div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">' +
+      '<button class="btn btn-primary grow" data-act="copy-teacher-url">复制老师网址</button></div>' +
+      '<div class="divider"></div>' +
+      '<div class="notice green"><b>家长专用网址（发给家长）</b><br>' +
+      '家长打开 → 自动连云端 → 填自己孩子的编号和密码 → 只看到自己孩子。</div>' +
       '<div class="code-line" id="parent-url">' + esc(url) + '</div>' +
       '<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">' +
       '<button class="btn btn-primary grow" data-act="copy-url">复制家长网址</button>' +
       '<button class="btn btn-ghost grow" data-act="open-url">预览一下</button></div>' +
-      '<div class="muted" style="margin-top:8px">⚠️ 网址里含云端读取地址，别发到公开群或朋友圈；' +
-      '写入链接与管理密码不在里面，家长只能看、不能改。</div>';
+      '<div class="muted" style="margin-top:8px">⚠️ 这两个网址都含云端读取地址，别发到公开群或朋友圈；' +
+      '写入令牌不在里面，别人拿到也只能看、不能改。</div>';
   }
 
   function tSettings() {
@@ -1200,6 +1245,14 @@
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(u).then(function () { toast('家长网址已复制'); }, function () { fallbackCopy(u); });
         } else fallbackCopy(u);
+        break;
+      }
+      case 'copy-teacher-url': {
+        var tu = buildTeacherURL();
+        if (!tu) { toast('请先填好数据读取链接'); break; }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(tu).then(function () { toast('老师网址已复制'); }, function () { fallbackCopy(tu); });
+        } else fallbackCopy(tu);
         break;
       }
       case 'open-url': {
@@ -1595,6 +1648,8 @@
   function boot() {
     applyTheme(currentTheme());
     state.db = loadLocal();
+    // 老师网址（?tcfg=）：先配好云端，再照常走登录；可能是家长也可能是老师，不强制角色
+    applyTeacherCfg();
     state.parentCfg = applyParentCfg();
     bindGlobal();
     if (state.parentCfg) {
