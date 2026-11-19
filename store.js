@@ -144,17 +144,27 @@
 
   /* ---------- 科目账号 ---------- */
   /* 用密码找对应的科目账号。返回科目对象或 null。
-     兼容旧数据：没有 pwd 的科目，用 adminHash 对应的密码（即原管理密码）登录数学。 */
+     兼容三种历史数据：
+       1) 科目有 pwd → 直接比对
+       2) 科目无 pwd 且是管理科目（或唯一的科目）→ 用 adminHash 比对（旧版只有一个管理密码）
+       3) 科目无 pwd 且非管理 → 不能用旧管理密码登录（避免任何科目都能被管理密码登入） */
   function findBySubjectPwd(db, pwd) {
     if (!pwd) return null;
     var subs = db.subjects || [];
+    // 1. 显式密码优先
     for (var i = 0; i < subs.length; i++) {
       var s = subs[i];
       if (s.pwd && s.pwd === pwd) return s;
     }
-    // 旧数据兜底：没设 pwd 的科目，用管理密码认作它的密码
-    for (var j = 0; j < subs.length; j++) {
-      if (!subs[j].pwd && verifyPwd(pwd, db.adminHash)) return subs[j];
+    // 2. 旧数据兜底：没有 pwd 的科目，用管理密码认领
+    //    只认「管理科目」或「列表里第一个科目」，避免一个旧密码登入所有科目
+    if (verifyPwd(pwd, db.adminHash)) {
+      var noPwd = subs.filter(function (x) { return !x.pwd; });
+      if (!noPwd.length) return null;
+      var adminOne = noPwd.filter(function (x) { return x.admin; })[0];
+      if (adminOne) return adminOne;
+      // 没有显式 admin 标记时，只允许列表第一个（即数学）
+      return subs[0] && !subs[0].pwd ? subs[0] : null;
     }
     return null;
   }
@@ -332,6 +342,11 @@
     });
     // 兼容旧数据：没有科目就补一个数学
     if (!out.subjects.length) out.subjects = [{ id: 'sub_math', name: '数学' }];
+    /* 迁移老数据：早期版本的科目只有 {id,name}，没有 admin 标记。
+       规则：一个科目都没有管理员标记时，把第一个（数学）设为管理员，
+       否则会没有人能改名册/加科目/改密码。 */
+    var hasAdmin = out.subjects.some(function (s) { return s.admin; });
+    if (!hasAdmin && out.subjects.length) out.subjects[0].admin = true;
     if (!out.activeSubject) out.activeSubject = out.subjects[0].id;
     if (db.cloud && typeof db.cloud === 'object') {
       out.cloud = Object.assign(out.cloud, db.cloud);
