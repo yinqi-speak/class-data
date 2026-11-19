@@ -32,7 +32,9 @@
     modalSave: null,
     dirty: false,
     parentCfg: false,      // 是否由「家长专用网址」进入
-    cloudError: ''         // 上次上传失败原因（空=无错误）
+    cloudError: '',        // 上次上传失败原因（空=无错误）
+    subjectId: '',         // 当前登录的老师所属科目（老师端有效）
+    isAdmin: false         // 当前登录的账号是否是管理账号（可改名册/加科目/改密码）
   };
 
   /* ---------------- 外观主题 ---------------- */
@@ -482,9 +484,16 @@
   function doLoginNow() {
     if (state.role === 'teacher') {
       var pw = $('#login-admin').value;
-      if (!S.verifyPwd(pw, state.db.adminHash)) { $('#login-msg').textContent = '管理密码不对'; return; }
+      if (!pw) { $('#login-msg').textContent = '请输入老师密码'; return; }
+      // 用密码识别是哪个科目的老师账号（数学/语文/英语各一个密码）
+      var subj = S.findBySubjectPwd(state.db, pw);
+      if (!subj) { $('#login-msg').textContent = '密码不对，请找班主任核对'; return; }
+      state.subjectId = subj.id;
+      state.db.activeSubject = subj.id;
+      state.isAdmin = !!subj.admin;
       state.studentId = null; state.teacherTab = 't-home';
       writeSession(); showView('view-teacher'); renderTeacher();
+      toast('已登录：' + subj.name + (subj.admin ? '（管理账号）' : ''));
     } else {
       var code = $('#login-code').value.trim(), pwd = $('#login-pwd').value.trim();
       var stu = S.studentByCode(state.db, code);
@@ -500,13 +509,28 @@
     showView('view-login'); renderLogin();
   }
   function writeSession() {
-    try { sessionStorage.setItem(SESSION, JSON.stringify({ role: state.role, sid: state.studentId })); } catch (e) {}
+    try {
+      sessionStorage.setItem(SESSION, JSON.stringify({
+        role: state.role, sid: state.studentId,
+        subjectId: state.subjectId, isAdmin: state.isAdmin
+      }));
+    } catch (e) {}
   }
   function restoreSession() {
     try {
       var raw = sessionStorage.getItem(SESSION); if (!raw) return false;
       var s = JSON.parse(raw);
-      if (s.role === 'teacher') { state.role = 'teacher'; state.studentId = null; showView('view-teacher'); renderTeacher(); return true; }
+      if (s.role === 'teacher') {
+        // 恢复账号身份；若科目已被删除则退回第一个科目
+        var subj = S.subjectById(state.db, s.subjectId) || (state.db.subjects || [])[0];
+        if (!subj) return false;
+        state.role = 'teacher';
+        state.subjectId = subj.id;
+        state.isAdmin = !!subj.admin;
+        state.db.activeSubject = subj.id;
+        state.studentId = null;
+        showView('view-teacher'); renderTeacher(); return true;
+      }
       if (s.role === 'parent' && s.sid && S.studentById(state.db, s.sid)) {
         state.role = 'parent'; state.studentId = s.sid; showView('view-parent'); renderParent(); return true;
       }
@@ -616,13 +640,21 @@
     }
     return h;
   }
+  /* 科目标签：让家长一眼看出这条是哪科老师写的 */
+  function subjectTag(rec) {
+    var sid = S.subjectOf(rec);
+    var s = S.subjectById(state.db, sid);
+    var name = s ? s.name : '数学';
+    var cls = sid === 'sub_math' ? 'green' : (sid === 'sub_cn' ? 'amber' : 'blue');
+    return '<span class="chip ' + cls + '" style="margin-right:6px">' + esc(name) + '</span>';
+  }
   function perfChip(kind) {
     if (kind === '进步' || kind === '发言' || kind === '互助') return 'green';
     if (kind === '待改进' || kind === '提醒') return 'red';
     return 'blue';
   }
   function tlItem(g, withPhotos) {
-    var h = '<div class="tl-item"><div class="tl-date">' + esc(g.date) + '</div>' +
+    var h = '<div class="tl-item"><div class="tl-date">' + subjectTag(g) + esc(g.date) + '</div>' +
       '<div class="tl-title">' + esc(g.title) + '</div>' +
       '<div class="tl-text">' + esc(g.text || '') + '</div>';
     if (withPhotos && g.photos && g.photos.length) {
@@ -638,7 +670,7 @@
     var h = '<div class="section-title">老师的话（' + n.length + '）</div>';
     if (!n.length) return h + '<div class="card">' + emptyBox('老师还没有写评语', '💬') + '</div>';
     n.forEach(function (x) {
-      h += '<div class="note-card"><div class="note-meta">' + esc(x.date) + '</div>' +
+      h += '<div class="note-card"><div class="note-meta">' + subjectTag(x) + esc(x.date) + '</div>' +
         '<div class="note-text">' + esc(x.text) + '</div></div>';
     });
     return h;
@@ -851,26 +883,42 @@
     h += '<div class="card"><div class="card-head"><h3>界面外观</h3><span class="sub">只换皮，不动数据</span></div>' +
       themeBlock() + '</div>';
 
-    h += '<div class="card"><div class="card-head"><h3>班级与安全</h3></div>' +
+    h += '<div class="card"><div class="card-head"><h3>班级信息</h3></div>' +
       '<div class="form-row"><label>班级名称</label><input id="set-class" value="' + esc(db.className) + '"></div>' +
       '<div class="form-row"><label>当前学期</label><input id="set-term" value="' + esc(db.term || '') + '" placeholder="如 2026-秋"></div>' +
       '<div class="muted" style="margin:-6px 0 12px">升年级时把学期改成新值（如 2027-春），旧数据不会丢，只是不再默认显示。</div>' +
-      '<div class="form-row"><label>修改老师管理密码（留空表示不改）</label>' +
-      '<input id="set-admin" type="password" placeholder="新管理密码"></div>' +
+      '<div class="form-row"><label>本账号登录密码（' + esc(((S.subjectById(db, state.subjectId) || {}).name) || '数学') + '，留空表示不改）</label>' +
+      '<input id="set-admin" type="password" placeholder="新密码，至少 4 位"></div>' +
       '<button class="btn btn-primary btn-block" data-act="set-save">保存设置</button></div>';
 
-    h += '<div class="card"><div class="card-head"><h3>科目</h3>' +
-      '<span class="sub">当前：' + esc((db.subjects.filter(function (s) { return s.id === db.activeSubject; })[0] || db.subjects[0] || {}).name || '数学') + '</span></div>' +
-      '<div class="notice">现在只有数学。以后加语文、英语时，点「＋ 添加科目」，' +
-      '每个科目独立记录成绩和表现，互不干扰；家长看到的仍是自己孩子的全部记录。</div>' +
-      '<div class="pill-row" style="margin-bottom:12px">' +
-      db.subjects.map(function (s) {
-        var on = s.id === db.activeSubject ? ' on' : '';
-        return '<span class="pill' + on + '" data-act="subject-pick" data-id="' + esc(s.id) + '">' + esc(s.name) + '</span>';
-      }).join('') + '</div>' +
-      '<div class="row" style="gap:8px;flex-wrap:wrap">' +
-      '<button class="btn btn-ghost grow" data-act="subject-add">＋ 添加科目</button>' +
-      '</div></div>';
+    h += '<div class="card"><div class="card-head"><h3>科目与老师账号</h3>' +
+      '<span class="sub">当前登录：' + esc(((S.subjectById(db, state.subjectId) || {}).name) || '数学') +
+      (state.isAdmin ? '（管理）' : '') + '</span></div>' +
+      '<div class="notice">每个科目就是一个老师账号，各有各的登录密码。<br>' +
+      '<b>所有老师都能看到全部科目的记录</b>（互通），但录入时只写自己科目的。<br>' +
+      '换老师时只改密码，账号和记录都不变。</div>';
+
+    h += '<div style="margin-bottom:12px">';
+    db.subjects.forEach(function (s) {
+      var on = s.id === db.activeSubject;
+      h += '<div class="list-item" style="padding:10px 0">' +
+        '<span class="chip ' + (s.admin ? 'green' : 'blue') + '">' + esc(s.name) + '</span>' +
+        '<span class="grow" style="min-width:0">' +
+        '<div class="muted" style="font-size:12px">登录密码：' +
+        (s.pwd ? '<b style="color:var(--ink)">' + esc(s.pwd) + '</b>' : '（用原管理密码）') +
+        (s.admin ? ' · 管理账号' : '') + '</div></span>' +
+        (state.isAdmin ? '<button class="link-btn" data-act="subject-pwd" data-id="' + esc(s.id) + '">改密码</button>' : '') +
+        (state.isAdmin && !s.admin ? '<button class="danger-link" style="margin-left:10px" data-act="subject-del" data-id="' + esc(s.id) + '">删</button>' : '') +
+        '</div>';
+    });
+    h += '</div>';
+
+    if (state.isAdmin) {
+      h += '<button class="btn btn-ghost btn-block" data-act="subject-add">＋ 添加科目（语文 / 英语…）</button>';
+    } else {
+      h += '<div class="muted">添加科目、改密码请找管理账号（班主任）操作。</div>';
+    }
+    h += '</div>';
 
     h += '<div class="card"><div class="card-head"><h3>名册批量导入</h3>' +
       '<span class="sub">' + db.students.length + ' 人</span></div>' +
@@ -1026,16 +1074,54 @@
         renderTeacher(); break;
       }
       case 'subject-add': {
+        if (!state.isAdmin) { toast('只有管理账号能添加科目'); break; }
         var sn = prompt('新科目名称（如 语文、英语）：', '');
         if (!sn) break;
         sn = String(sn).trim();
         if (!sn) break;
         if (db.subjects.some(function (s) { return s.name === sn; })) { toast('已经有这个科目了'); break; }
+        var sp = prompt('给「' + sn + '」老师设一个登录密码（她以后用这个登录）：', S.genPwd());
+        if (!sp) break;
+        sp = String(sp).trim();
+        if (sp.length < 4) { toast('密码至少 4 位'); break; }
         var sid = S.uid('sub');
-        db.subjects.push({ id: sid, name: sn });
+        db.subjects.push({ id: sid, name: sn, pwd: sp, admin: false });
         db.activeSubject = sid;
         persist('已添加科目：' + sn); renderTeacher();
-        toast('已添加「' + sn + '」，现在记录的成绩会归到这个科目');
+        toast('「' + sn + '」已创建，密码：' + sp + '（请转告该科老师）');
+        break;
+      }
+      case 'subject-pwd': {
+        if (!state.isAdmin) { toast('只有管理账号能改密码'); break; }
+        var target = S.subjectById(db, el.dataset.id);
+        if (!target) break;
+        var np = prompt('给「' + target.name + '」设置新登录密码：', target.pwd || S.genPwd());
+        if (!np) break;
+        np = String(np).trim();
+        if (np.length < 4) { toast('密码至少 4 位'); break; }
+        target.pwd = np;
+        persist('密码已更新'); renderTeacher();
+        toast(target.name + '的新密码：' + np);
+        break;
+      }
+      case 'subject-del': {
+        if (!state.isAdmin) { toast('只有管理账号能删除科目'); break; }
+        var ds = S.subjectById(db, el.dataset.id);
+        if (!ds) break;
+        if (ds.admin) { toast('管理账号不能删除'); break; }
+        var cnt = db.exams.filter(function (e) { return S.subjectOf(e) === ds.id; }).length;
+        if (!confirm('删除「' + ds.name + '」？该科目下 ' + cnt + ' 场考试的记录也会一起删除，且无法恢复。')) break;
+        // 先记下属于该科目的考试 id，再统一清理
+        var deadExams = db.exams.filter(function (e) { return S.subjectOf(e) === ds.id; })
+          .map(function (e) { return e.id; });
+        db.subjects = db.subjects.filter(function (s) { return s.id !== ds.id; });
+        db.exams = db.exams.filter(function (e) { return deadExams.indexOf(e.id) < 0; });
+        db.scores = db.scores.filter(function (s) { return deadExams.indexOf(s.examId) < 0; });
+        db.notes = db.notes.filter(function (n) { return S.subjectOf(n) !== ds.id; });
+        db.perf = db.perf.filter(function (p) { return S.subjectOf(p) !== ds.id; });
+        db.growth = db.growth.filter(function (g) { return S.subjectOf(g) !== ds.id; });
+        if (db.activeSubject === ds.id) db.activeSubject = (db.subjects[0] || {}).id || 'sub_math';
+        persist('已删除科目：' + ds.name); renderTeacher();
         break;
       }
       case 'set-save': {
@@ -1043,7 +1129,18 @@
         var tm = ($('#set-term') || {}).value ? $('#set-term').value.trim() : '';
         if (cn) db.className = cn;
         if (tm) db.term = tm;
-        if (ap) db.adminHash = S.hashPwd(ap);
+        if (ap) {
+          if (ap.length < 4) { toast('密码至少 4 位'); break; }
+          // 改的是「当前登录账号」的密码；管理账号同时更新 adminHash 以兼容旧逻辑
+          var me = S.subjectById(db, state.subjectId);
+          if (me) {
+            me.pwd = ap;
+            if (me.admin) db.adminHash = S.hashPwd(ap);
+          } else {
+            db.adminHash = S.hashPwd(ap);
+          }
+          toast('密码已改，下次用新密码登录');
+        }
         $('#set-admin').value = '';
         persist('设置已保存'); renderTeacher(); break;
       }
@@ -1226,7 +1323,8 @@
         var kind = ($('#f-kinds .pill.on') || {}).dataset ? $('#f-kinds .pill.on').dataset.k : '发言';
         state.db.perf.push({
           id: S.uid('pf'), studentId: $('#f-stu').value, kind: kind,
-          date: $('#f-date').value || S.today(), note: note
+          date: $('#f-date').value || S.today(), note: note,
+          subjectId: state.subjectId || 'sub_math'
         });
         persist('已记录'); renderTeacher(); return true;
       });
@@ -1253,7 +1351,8 @@
         var title = $('#f-title').value.trim(); if (!title) { toast('标题不能为空'); return false; }
         state.db.growth.push({
           id: S.uid('gr'), studentId: $('#f-stu').value, date: $('#f-date').value || S.today(),
-          title: title, text: $('#f-text').value.trim(), photos: S.clone(state.photos)
+          title: title, text: $('#f-text').value.trim(), photos: S.clone(state.photos),
+          subjectId: state.subjectId || 'sub_math'
         });
         persist('已添加成长记录'); renderTeacher(); return true;
       });
@@ -1317,7 +1416,8 @@
         var text = $('#f-text').value.trim(); if (!text) { toast('评语不能为空'); return false; }
         state.db.notes.push({
           id: S.uid('nt'), studentId: $('#f-stu').value,
-          date: $('#f-date').value || S.today(), text: text
+          date: $('#f-date').value || S.today(), text: text,
+          subjectId: state.subjectId || 'sub_math'
         });
         persist('评语已保存，家长刷新可见'); renderTeacher(); return true;
       });
