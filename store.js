@@ -124,8 +124,14 @@
       version: VERSION, className: '我的班级', adminHash: hashPwd('admin123'),
       // 当前学期（影响默认筛选；历史记录保留）
       term: '2026-秋',
-      // 科目列表：默认数学；以后可加语文、英语
-      subjects: [{ id: 'sub_math', name: '数学' }],
+      /* 科目 = 老师账号。每科一条记录：
+         { id, name, pwd, admin }
+         - pwd：该科老师的登录密码（换老师就改这里，账号不变）
+         - admin：true 表示是管理账号（可改名册、加科目、改密码）
+         数学默认就是管理账号，所以现有用户不用学新东西。 */
+      subjects: [
+        { id: 'sub_math', name: '数学', pwd: 'admin123', admin: true }
+      ],
       activeSubject: 'sub_math',
       students: [], exams: [], scores: [], kps: [], wrong: [], perf: [], growth: [], notes: [],
       cloud: {
@@ -134,6 +140,41 @@
         ghRepo: '', ghPath: 'data.json', ghBranch: 'main', ghToken: ''
       }
     };
+  }
+
+  /* ---------- 科目账号 ---------- */
+  /* 用密码找对应的科目账号。返回科目对象或 null。
+     兼容旧数据：没有 pwd 的科目，用 adminHash 对应的密码（即原管理密码）登录数学。 */
+  function findBySubjectPwd(db, pwd) {
+    if (!pwd) return null;
+    var subs = db.subjects || [];
+    for (var i = 0; i < subs.length; i++) {
+      var s = subs[i];
+      if (s.pwd && s.pwd === pwd) return s;
+    }
+    // 旧数据兜底：没设 pwd 的科目，用管理密码认作它的密码
+    for (var j = 0; j < subs.length; j++) {
+      if (!subs[j].pwd && verifyPwd(pwd, db.adminHash)) return subs[j];
+    }
+    return null;
+  }
+  function subjectById(db, id) {
+    var subs = db.subjects || [];
+    for (var i = 0; i < subs.length; i++) if (subs[i].id === id) return subs[i];
+    return null;
+  }
+  function isAdminSubject(db, subjectId) {
+    var s = subjectById(db, subjectId);
+    return !!(s && s.admin);
+  }
+  /* 把某条记录归到某科目：老数据没有 subjectId 的一律算数学 */
+  function subjectOf(rec) {
+    return (rec && rec.subjectId) || 'sub_math';
+  }
+  /* 按科目筛选任意记录数组 */
+  function filterBySubject(list, subjectId) {
+    if (!subjectId) return list.slice();
+    return list.filter(function (r) { return subjectOf(r) === subjectId; });
   }
 
   /* ---------- 查询 / 统计（纯函数，单测目标） ---------- */
@@ -306,6 +347,9 @@
     scoreSeries: scoreSeries, deltaList: deltaList, classAverage: classAverage,
     weakKPs: weakKPs, attentionStudents: attentionStudents, scoreOf: scoreOf,
     growthOf: growthOf, notesOf: notesOf, perfOf: perfOf, wrongOf: wrongOf,
-    upsertScore: upsertScore, addStudent: addStudent
+    upsertScore: upsertScore, addStudent: addStudent,
+    /* 科目账号 */
+    findBySubjectPwd: findBySubjectPwd, subjectById: subjectById,
+    isAdminSubject: isAdminSubject, subjectOf: subjectOf, filterBySubject: filterBySubject
   };
 });
