@@ -271,8 +271,58 @@
       var localHas = essential.some(function (k) { return localDb[k] && localDb[k].length > 0; });
       if (localHas) return localDb;          // 云端还没上传过，保留本机
     }
-    return remDb;
+    return remDb;  }
+
+  /* ============================================================
+   *  记录级合并（方案 A：推送前拉云端，按 id 取并集，防止互相覆盖）
+   *  与 mergeDB 不同：mergeDB 是「整体取新」（用于拉取展示）；
+   *  unionDB 是「取并集」（用于上传前，保住别人的记录）。
+   * ============================================================ */
+  var UNION_LISTS = ['students', 'exams', 'scores', 'kps', 'wrong', 'perf', 'growth', 'notes', 'subjects'];
+
+  function unionList(localArr, remoteArr) {
+    var out = [], seen = {};
+    // 云端先放（把它当作权威基线），本机再补
+    (remoteArr || []).forEach(function (x) {
+      if (!x || !x.id) return;
+      out.push(x); seen[x.id] = 1;
+    });
+    (localArr || []).forEach(function (x) {
+      if (!x || !x.id) return;
+      if (seen[x.id]) {
+        // 同一条记录两边都有：本机的更新（本机是刚编辑过的），覆盖云端那条
+        for (var i = 0; i < out.length; i++) {
+          if (out[i].id === x.id) { out[i] = x; break; }
+        }
+      } else {
+        out.push(x); seen[x.id] = 1;
+      }
+    });
+    return out;
   }
+
+  /* 把 local 与 remote 合成本机该保存的完整数据：
+     - 标量字段（班级名/学期/密码等）以 local 为准（本机用户刚改的）
+     - 所有列表按 id 取并集
+     - 返回 { db, addedFromRemote } ，addedFromRemote 记录从云端补进来多少条 */
+  function unionDB(local, remote) {
+    var out = S.clone(local);
+    var added = 0;
+    UNION_LISTS.forEach(function (k) {
+      var before = (out[k] || []).length;
+      out[k] = unionList(out[k] || [], remote[k] || []);
+      added += Math.max(0, out[k].length - before);
+    });
+    return { db: out, addedFromRemote: added };
+  }
+
+  /* 计算两份数据的记录总数（用于判断云端是否为空壳） */
+  function countRecords(db) {
+    return UNION_LISTS.reduce(function (n, k) {
+      return n + ((db && db[k]) ? db[k].length : 0);
+    }, 0);
+  }
+
   function pullCloud(showMsg) {
     var c = cloudCfg();
     var url = (c.mode === 'github') ? ghReadUrl() : c.getUrl;
@@ -319,25 +369,10 @@
     // 串行化：正在上传时再来一次，就标记「传完再传一次」，避免并发写导致 sha 冲突
     if (pushing) { pushAgain = true; return Promise.resolve(false); }
     pushing = true;
-    var payload = wrap(state.db);
-    var body = JSON.stringify(payload);
 
-    var task;
-    if (c.mode === 'github') {
-      task = pushGitHub(c, body, payload);
-    } else if (!c.putUrl) {
-      pushing = false;
-      toast('只有「读取链接」，本机可看；要让家长看到，需配置「写入链接」');
-      return Promise.resolve(false);
-    } else {
-      task = fetch(c.putUrl, {
-        method: 'PUT',
-        headers: cloudHeaders(c.token, { 'Content-Type': 'application/json' }),
-        body: body
-      }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-        .then(function () { onPushDone(payload); return true; })
-        .catch(function (e) { state.cloudError = e.message; renderBadge(); toast('上传失败：' + e.message); return false; });
-    }
+    /* 方案 A：推送前先拉云端最新，按 id 取并集后再上传。
+       这样语文老师保存时不会把数学老师刚录的成绩冲掉。 */
+    var task = preMergeThenPush(c);
     return task.then(function (r) {
       pushing = false;
       if (pushAgain) { pushAgain = false; return pushCloud(); }
@@ -346,6 +381,58 @@
       pushing = false; pushAgain = false;
       throw e;
     });
+  }
+
+  /* 拉云端 → 合并 → 上传。拉不到（断网/首次）就直接上传本机。 */
+  function preMergeThenPush(c) {
+    var url = (c.mode === 'github') ? ghReadUrl() : c.getUrl;
+    if (!url) return doPush(c);
+
+    var fetchUrl = url.indexOf('?') < 0 ? url + '?t=' + Date.now()
+      : (/([?&])t=$/.test(url) ? url + Date.now() : url);
+
+    return fetch(fetchUrl, { headers: cloudHeaders(c.token), cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (raw) {
+        var remoteDb = raw ? unwrap(raw) : null;
+        // 云端没有数据 or 拉取失败 → 直接传本机（首次上传场景）
+        if (!remoteDb || countRecords(remoteDb) === 0) return doPush(c);
+
+        var merged = unionDB(state.db, S.normalize(remoteDb));
+        var added = merged.addedFromRemote;
+        // 用合并结果替换本机（保住别人新增的记录）
+        var keepCloud = S.clone(state.db.cloud || {});
+        state.db = S.normalize(merged.db);
+        state.db.cloud = Object.assign({}, keepCloud, {
+          ghToken: keepCloud.ghToken || '',
+          token: keepCloud.token || ''
+        });
+        saveLocal();
+        if (added > 0) {
+          toast('已合并其他老师新增的 ' + added + ' 条记录');
+          renderCurrent();
+        }
+        return doPush(c);
+      });
+  }
+
+  function doPush(c) {
+    var payload = wrap(state.db);
+    var body = JSON.stringify(payload);
+
+    if (c.mode === 'github') return pushGitHub(c, body, payload);
+    if (!c.putUrl) {
+      toast('只有「读取链接」，本机可看；要让家长看到，需配置「写入链接」');
+      return Promise.resolve(false);
+    }
+    return fetch(c.putUrl, {
+      method: 'PUT',
+      headers: cloudHeaders(c.token, { 'Content-Type': 'application/json' }),
+      body: body
+    }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(function () { onPushDone(payload); return true; })
+      .catch(function (e) { state.cloudError = e.message; renderBadge(); toast('上传失败：' + e.message); return false; });
   }
 
   function onPushDone(payload) {
