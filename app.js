@@ -194,7 +194,9 @@
       c.ghRepo = cfg.repo || '';
       c.ghPath = cfg.path || 'data.json';
       c.ghBranch = cfg.branch || 'main';
-      // 不覆盖本机已有的 ghToken（安全）
+      // 老师网址里携带写入令牌，老师打开即能录数据（用户选择：最省事）
+      // 本机已有令牌时不覆盖；网址没带时保留本机
+      if (cfg.token) c.ghToken = cfg.token;
       saveLocal();
       return true;
     } catch (e) { return false; }
@@ -1008,13 +1010,15 @@
   function buildTeacherURL() {
     var c = cloudCfg();
     var base = location.href.split('#')[0].split('?')[0];
-    // 老师网址：带上读取地址 + GitHub 仓库/路径/分支，但不带写入令牌
-    // 老师拿到后自动连云端读到名单和密码；写入令牌仍需每台设备填一次（保持安全）
+    /* 老师网址：带读取地址 + 仓库信息 + 写入令牌。
+       令牌放在网址里是为了让老师打开就能录数据（用户明确选择"最省事"）。
+       ⚠️ 这个网址等于写入权限，只能一对一发给信任的老师，不能发群里。 */
     var cfg = {
       readUrl: (c.mode === 'github') ? (ghReadUrl() || c.getUrl) : c.getUrl,
       repo: c.ghRepo || '',
       path: c.ghPath || 'data.json',
-      branch: c.ghBranch || 'main'
+      branch: c.ghBranch || '',
+      token: c.ghToken || ''
     };
     if (!cfg.readUrl) return '';
     return base + '?tcfg=' + encodeURIComponent(b64encode(JSON.stringify(cfg)));
