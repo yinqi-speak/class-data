@@ -485,6 +485,15 @@
     $('#login-parent').hidden = state.role !== 'parent';
     $('#login-teacher').hidden = state.role !== 'teacher';
     $$('#role-segment .seg-btn').forEach(function (b) { b.classList.toggle('active', b.dataset.role === state.role); });
+    // 老师账号下拉：从云端的科目列表生成（数学/语文/英语…）
+    var sel = $('#login-subject');
+    if (sel) {
+      var subs = (state.db.subjects && state.db.subjects.length)
+        ? state.db.subjects : [{ id: 'sub_math', name: '数学' }];
+      sel.innerHTML = subs.map(function (s) {
+        return '<option value="' + esc(s.id) + '">' + esc(s.name) + (s.admin ? '（管理）' : '') + '</option>';
+      }).join('');
+    }
     $('#login-msg').textContent = '';
     var isCfg = !!state.parentCfg;
     $('#cfg-card').hidden = !isCfg;
@@ -500,7 +509,18 @@
   }
   function doLogin() {
     if (state.db.cloud.enabled) {
-      pullCloud(false).then(function () { doLoginNow(); });
+      pullCloud(false).then(function () {
+        // 云端数据更新后，刷新老师账号下拉框
+        var sel = $('#login-subject');
+        if (sel && state.db.subjects && state.db.subjects.length) {
+          var keep = sel.value;
+          sel.innerHTML = state.db.subjects.map(function (s) {
+            return '<option value="' + esc(s.id) + '">' + esc(s.name) + (s.admin ? '（管理）' : '') + '</option>';
+          }).join('');
+          if (keep) sel.value = keep;
+        }
+        doLoginNow();
+      });
       return;
     }
     doLoginNow();
@@ -508,10 +528,20 @@
   function doLoginNow() {
     if (state.role === 'teacher') {
       var pw = $('#login-admin').value;
-      if (!pw) { $('#login-msg').textContent = '请输入老师密码'; return; }
-      // 用密码识别是哪个科目的老师账号（数学/语文/英语各一个密码）
-      var subj = S.findBySubjectPwd(state.db, pw);
-      if (!subj) { $('#login-msg').textContent = '密码不对，请找班主任核对'; return; }
+      var sid = $('#login-subject') ? $('#login-subject').value : '';
+      if (!sid) { $('#login-msg').textContent = '请选择老师账号'; return; }
+      if (!pw) { $('#login-msg').textContent = '请输入该账号的密码'; return; }
+      // 账号（科目）+ 密码 分开校验，不再靠密码反查，避免混淆
+      var subj = S.subjectById(state.db, sid);
+      if (!subj) { $('#login-msg').textContent = '账号不存在，请联系班主任'; return; }
+      var ok = false;
+      if (subj.pwd) {
+        ok = (pw === subj.pwd);
+      } else {
+        // 旧数据：该科目没单独设密码，用原管理密码（只认管理科目/第一个科目）
+        ok = S.verifyPwd(pw, state.db.adminHash) && S.isAdminSubject(state.db, subj.id);
+      }
+      if (!ok) { $('#login-msg').textContent = '账号或密码不对，请核对后重试'; return; }
       state.subjectId = subj.id;
       state.db.activeSubject = subj.id;
       state.isAdmin = !!subj.admin;
