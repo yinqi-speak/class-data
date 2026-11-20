@@ -385,17 +385,36 @@
     });
   }
 
-  /* 拉云端 → 合并 → 上传。拉不到（断网/首次）就直接上传本机。 */
+  /* 拉云端 → 合并 → 上传。拉不到（断网/首次）就直接上传本机。
+     ⚠️ GitHub 模式下必须从 api.github.com 读，不能用 github.io：
+     Pages 的 data.json 有 max-age=600 缓存，加时间戳也绕不开，
+     会合并到旧数据，等于没防住并发覆盖。 */
   function preMergeThenPush(c) {
-    var url = (c.mode === 'github') ? ghReadUrl() : c.getUrl;
-    if (!url) return doPush(c);
+    var isGh = (c.mode === 'github') && c.ghRepo && c.ghRepo.split('/').length === 2;
 
-    var fetchUrl = url.indexOf('?') < 0 ? url + '?t=' + Date.now()
-      : (/([?&])t=$/.test(url) ? url + Date.now() : url);
+    var fetchPromise;
+    if (isGh && c.ghToken) {
+      // GitHub API 读：无 CDN 缓存，拿到的就是最新
+      fetchPromise = fetch(ghContentsApi() + '?ref=' + encodeURIComponent(c.ghBranch), {
+        headers: { 'Authorization': 'Bearer ' + c.ghToken, 'Accept': 'application/vnd.github+json' },
+        cache: 'no-store'
+      }).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (meta) {
+          if (!meta || !meta.content) return null;
+          try { return JSON.parse(b64ToUtf8(meta.content)); } catch (e) { return null; }
+        })
+        .catch(function () { return null; });
+    } else {
+      var url = isGh ? ghReadUrl() : c.getUrl;
+      if (!url) return doPush(c);
+      var fetchUrl = url.indexOf('?') < 0 ? url + '?t=' + Date.now()
+        : (/([?&])t=$/.test(url) ? url + Date.now() : url);
+      fetchPromise = fetch(fetchUrl, { headers: cloudHeaders(c.token), cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; });
+    }
 
-    return fetch(fetchUrl, { headers: cloudHeaders(c.token), cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; })
+    return fetchPromise
       .then(function (raw) {
         var remoteDb = raw ? unwrap(raw) : null;
         // 云端没有数据 or 拉取失败 → 直接传本机（首次上传场景）
